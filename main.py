@@ -155,11 +155,30 @@ STICKERS_TO_DELETE = [
     'AgAD0QgAAnKqiVU',
     'AgAD3wEAAq4xRgU',
     'AgAD5AEAAq4xRgU',
-    'AgADmBEAAkkJ0VU',
-    'AgADpgADO2AkFA',
-    'AgAD6BEAAkkJ0VU',
-    'AgADRA8AAp3zQFU'
+    'AgADCgwAApXjQFU',
+    'AgAD6g0AAsbsQVU',
+    'AgADHxMAAqZlOFU',
+    'AgAD7RAAAqpWKFU',
+    'AgADNxAAAlbOKFU',
+    'AgAD5QwAAnJBKVU',
+    'AgADuhEAAhbUSVU',
+    'AgADwREAAngIgVU',
+    'AgAD-REAAolesVU',
+    'AgADZRAAAnWpKFU',
+    'AgADRA8AAp3zQFU',
+    'AgAD3QsAAmL0QFU',
+    'AgADmwsAAljEQFU',
+    'AgADDAwAArmHQVU',
+    'AgADuhEAAhbUSVU',
+    'AgADwREAAngIgVU',
+    'AgAD-REAAolesVU',
+    'AgADZBIAAvaSIVU',
+    'AgADCREAAvK7IFU',
+    'AgAD7g4AAtAXkVQ'
 ]
+
+# List of banned words
+BANNED_WORDS = ['chip', 'pizza']  # Replace with actual banned words
 
 # Enable logging
 logging.basicConfig(
@@ -170,59 +189,68 @@ logging.basicConfig(
 # Dictionary to track user spam activity
 user_spam_data = defaultdict(lambda: {'count': 0, 'last_message_time': 0})
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.info("Received /start command.")
-    await update.message.reply_text('Hello! I will delete specific GIFs and stickers.')
+# List of admin user IDs (replace with actual admin IDs)
+ADMINS = [6115961196]  # Replace with actual admin IDs
 
-async def delete_gifs_and_stickers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# Max concurrent delete operations to avoid hitting rate limits
+MAX_CONCURRENT_DELETIONS = 10
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text('Hello! I will delete specific GIFs, stickers, and banned words.')
+
+async def delete_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     chat_id = message.chat_id
     user_id = message.from_user.id
     user_name = message.from_user.username
     current_time = time.time()  # Use time.time() to get the current timestamp
 
-    logging.info(f"Received message from user_id: {user_id} (username: {user_name}) in chat_id: {chat_id}")
+    # List of tasks to be processed
+    tasks = []
 
     # Check if the message contains a GIF
     if message.animation and message.animation.file_id in GIFS_TO_DELETE:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=message.message_id)
-            logging.info(f"Deleted GIF with file_id: {message.animation.file_id}")
-
-            # Update spam data
-            user_spam_data[user_id]['count'] += 1
-            user_spam_data[user_id]['last_message_time'] = current_time
-
-            # Schedule warning message
-            asyncio.create_task(schedule_warning(user_id, chat_id, user_name, context, current_time))
-        except Exception as e:
-            logging.error(f"Failed to delete GIF: {e}")
+        tasks.append(delete_message(context, chat_id, message.message_id, "GIF", user_id, user_name, current_time))
 
     # Check if the message contains a sticker
     if message.sticker and message.sticker.file_unique_id in STICKERS_TO_DELETE:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=message.message_id)
-            logging.info(f"Deleted sticker with file_id: {message.sticker.file_id}")
+        tasks.append(delete_message(context, chat_id, message.message_id, "Sticker", user_id, user_name, current_time))
 
-            # Update spam data
-            user_spam_data[user_id]['count'] += 1
-            user_spam_data[user_id]['last_message_time'] = current_time
+    # Check if the message contains banned words (only delete if sent by admins)
+    if message.text:
+        for banned_word in BANNED_WORDS:
+            if banned_word in message.text.lower() and user_id in ADMINS:
+                tasks.append(delete_message(context, chat_id, message.message_id, "Banned Word", user_id, user_name, current_time))
 
-            # Schedule warning message
-            asyncio.create_task(schedule_warning(user_id, chat_id, user_name, context, current_time))
-        except Exception as e:
-            logging.error(f"Failed to delete sticker: {e}")
+    # Run all tasks concurrently
+    if tasks:
+        await asyncio.gather(*tasks)
+
+async def delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, content_type: str, user_id: int, user_name: str, last_message_time: float) -> None:
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+
+        # Update spam data
+        user_spam_data[user_id]['count'] += 1
+        user_spam_data[user_id]['last_message_time'] = last_message_time
+
+        # Schedule warning message
+        asyncio.create_task(schedule_warning(user_id, chat_id, user_name, context, last_message_time))
+    except Exception as e:
+        logging.error(f"Failed to delete {content_type} with message_id {message_id}: {e}")
 
 async def schedule_warning(user_id: int, chat_id: int, user_name: str, context: ContextTypes.DEFAULT_TYPE, last_message_time: float) -> None:
     await asyncio.sleep(2)  # Wait for 2 seconds
     current_time = time.time()  # Get the current timestamp
-    # Check if the user is still spamming
     if user_spam_data[user_id]['last_message_time'] == last_message_time:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=f'Warning: User @{user_name} (ID: {user_id}), please do not send restricted content.')
-            logging.info(f"Sent warning to user_id: {user_id} (username: {user_name})")
+            warning_message = await context.bot.send_message(chat_id=chat_id, text=f'Warning: User @{user_name} (ID: {user_id}), please do not send restricted content.')
+
+            # Wait for 10 seconds before deleting the warning message
+            await asyncio.sleep(10)
+            await context.bot.delete_message(chat_id=chat_id, message_id=warning_message.message_id)
         except Exception as e:
-            logging.error(f"Failed to send warning: {e}")
+            logging.error(f"Failed to send or delete warning: {e}")
 
 async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -244,11 +272,11 @@ def main() -> None:
     # Command handler to warn a user
     application.add_handler(CommandHandler("warn", warn_user))
 
-    # Separate message handlers for GIFs and Stickers
-    application.add_handler(MessageHandler(filters.ANIMATION, delete_gifs_and_stickers))
-    application.add_handler(MessageHandler(filters.Sticker.ALL, delete_gifs_and_stickers))
+    # Separate message handlers for GIFs, Stickers, and Banned Words
+    application.add_handler(MessageHandler(filters.ANIMATION, delete_messages))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, delete_messages))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, delete_messages))  # For banned words
 
-    logging.info("Bot started.")
     application.run_polling()
 
 if __name__ == '__main__':
