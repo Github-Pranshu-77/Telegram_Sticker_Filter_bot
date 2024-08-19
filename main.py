@@ -6,7 +6,7 @@ from collections import defaultdict
 import time
 
 # Replace with your bot's token
-TOKEN = '7359450442:AAENFfHP_ZkysXmLRR3lCIOo7ihixZeUC-w'
+TOKEN = 'YOUR_BOT_TOKEN'
 
 # List of unique_ids for GIFs and stickers to be deleted
 GIFS_TO_DELETE = ['file_id_of_gif1']  # Replace with actual file_id of GIFs
